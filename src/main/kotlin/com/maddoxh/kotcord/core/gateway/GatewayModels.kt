@@ -2,6 +2,7 @@ package com.maddoxh.kotcord.core.gateway
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 @Serializable
 data class GatewayPayload<T>(
@@ -60,7 +61,16 @@ data class InteractionCreate(
 @Serializable
 data class InteractionData(
     val id: String,
-    val name: String
+    val name: String,
+    val options: List<ApplicationCommandInteractionDataOption>? = null
+)
+
+@Serializable
+data class ApplicationCommandInteractionDataOption(
+    val name: String,
+    val type: Int,
+    val value: JsonElement? = null,
+    val options: List<ApplicationCommandInteractionDataOption>? = null
 )
 
 @Serializable
@@ -91,5 +101,14 @@ data class InteractionMessageData(
 data class ApplicationCommandCreate(
     val name: String,
     val description: String,
-    val type: Int = 1
+    val type: Int = 1,
+    val options: List<ApplicationCommandOption>? = null
+)
+
+@Serializable
+data class ApplicationCommandOption(
+    val type: Int,
+    val name: String,
+    val description: String,
+    val required: Boolean = false
 )

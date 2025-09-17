@@ -18,6 +18,7 @@ import kotlinx.coroutines.*
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.reflect.KClass
 
@@ -104,7 +105,21 @@ class Bot private constructor(
         if(slashCommands.isEmpty()) return
 
         val appID = getApplicationID()
-        val body = slashCommands.values.map { ApplicationCommandCreate(it.name, it.description) }
+        val body = slashCommands.values.map {
+            ApplicationCommandCreate(
+                name = it.name,
+                description = it.description,
+                type = 1,
+                options = it.options.map { opt ->
+                    ApplicationCommandOption(
+                        type = opt.type,
+                        name = opt.name,
+                        description = opt.description,
+                        required = opt.required
+                    )
+                }.ifEmpty { null }
+            )
+        }
 
         val guildID = config.defaultGuildID
         val base = if(guildID != null) {
@@ -229,6 +244,12 @@ class Bot private constructor(
                                                     ?: ev.user?.username
                                                     ?: "there"
 
+                                                val optMap: Map<String, String?> =
+                                                    ev.data.options?.associate { o ->
+                                                        val v = if(o.type == 3) o.value?.jsonPrimitive?.content else null
+                                                        o.name to v
+                                                    } ?: emptyMap()
+
                                                 scope.launch {
                                                     try {
                                                         cmd.run(SlashContext(
@@ -236,7 +257,8 @@ class Bot private constructor(
                                                             interactionID = ev.id,
                                                             interactionToken = ev.token,
                                                             commandName = name,
-                                                            username = userName
+                                                            username = userName,
+                                                            optionValues = optMap
                                                         ))
                                                     } catch(t: Throwable) {
                                                         runCatching {

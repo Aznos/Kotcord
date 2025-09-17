@@ -18,8 +18,10 @@ fun main() {
     }
 
     bot.slash("hello", "say hi") {
+        stringOption("name", "Who to greet", required = false)
         action {
-            respond("Hey ${username}!")
+            val who = optionString("name") ?: username
+            respond("Hey ${who}!")
         }
     }
 
