@@ -1,5 +1,8 @@
 package com.maddoxh.kotcord.core
 
+import com.maddoxh.kotcord.core.commands.SlashCommand
+import com.maddoxh.kotcord.core.commands.SlashCommandBuilder
+import com.maddoxh.kotcord.core.commands.SlashContext
 import com.maddoxh.kotcord.core.events.BotReadyEvent
 import com.maddoxh.kotcord.core.gateway.*
 import io.ktor.client.*
@@ -7,6 +10,7 @@ import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.plugins.websocket.*
 import io.ktor.client.request.*
+import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.websocket.*
@@ -22,7 +26,8 @@ class Bot private constructor(
 ) {
     data class Config(
         var token: String = "",
-        var intents: Int = 1
+        var intents: Int = 1,
+        var defaultGuildID: String? = null
     )
 
     class Builder {
@@ -33,6 +38,9 @@ class Bot private constructor(
         var intents: Int
             get() = conf.intents
             set(value) { conf.intents = value }
+        var defaultGuildID: String?
+            get() = conf.defaultGuildID
+            set(value) { conf.defaultGuildID = value }
     }
 
     companion object {
@@ -44,6 +52,11 @@ class Bot private constructor(
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val handlers: MutableMap<KClass<*>, MutableList<suspend (Any) -> Unit>> = ConcurrentHashMap()
+
+    private fun HttpRequestBuilder.auth() {
+        headers.append("Authorization", "Bot ${config.token}")
+        headers.append("User-Agent", "DiscordBot (kotcord)")
+    }
 
     inline fun <reified T: Any> on(noinline handler: suspend (T) -> Unit) {
         val list = handlers.getOrPut(T::class) { mutableListOf() }
@@ -70,10 +83,56 @@ class Bot private constructor(
     suspend fun sendMessage(channelID: String, content: String) {
         val url = "https://discord.com/api/v9/channels/$channelID/messages"
         client.post(url) {
-            headers.append("Authorization", "Bot ${config.token}")
-            headers.append("User-Agent", "DiscordBot (kotcord)")
+            auth()
             contentType(ContentType.Application.Json)
             setBody(CreateMessage(content))
+        }
+    }
+
+    private val slashCommands: MutableMap<String, SlashCommand> = ConcurrentHashMap()
+
+    fun slash(name: String, description: String, builder: SlashCommandBuilder.() -> Unit) {
+        require(name.matches(Regex("^[\\w-]{1,32}\$"))) {
+            "Slash command name must be 1-32 chars, lowercase, numbers, -, _"
+        }
+
+        val cmd = SlashCommandBuilder(name, description).apply(builder).build()
+        slashCommands[name] = cmd
+    }
+
+    private suspend fun upsertSlashCommands() {
+        if(slashCommands.isEmpty()) return
+
+        val appID = getApplicationID()
+        val body = slashCommands.values.map { ApplicationCommandCreate(it.name, it.description) }
+
+        val guildID = config.defaultGuildID
+        val base = if(guildID != null) {
+            "https://discord.com/api/v9/applications/$appID/guilds/$guildID/commands"
+        } else {
+            "https://discord.com/api/v9/applications/$appID/commands"
+        }
+
+        client.put(base) {
+            auth()
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+    }
+
+    private suspend fun getApplicationID(): String {
+        val resp = client.get("https://discord.com/api/v9/oauth2/applications/@me") {
+            auth()
+        }
+
+        return json.decodeFromString(ApplicationInfo.serializer(), resp.bodyAsText()).id
+    }
+
+    internal suspend fun interactionsCreateMessage(interactionID: String, interactionToken: String, content: String) {
+        val url = "https://discord.com/api/v9/interactions/$interactionID/$interactionToken/callback"
+        client.post(url) {
+            contentType(ContentType.Application.Json)
+            setBody(InteractionCallback(type = 4, data = InteractionMessageData(content)))
         }
     }
 
@@ -95,8 +154,6 @@ class Bot private constructor(
                     send(text)
                 }
 
-                println("WebSocket connected")
-
                 for(frame in incoming) {
                     when(frame) {
                         is Frame.Text -> {
@@ -110,7 +167,6 @@ class Bot private constructor(
                                 OpCodes.HELLO -> {
                                     val hello = json.decodeFromJsonElement(Hello.serializer(), base.d!!)
                                     heartbeatIntervalMs = hello.heartbeat_interval
-                                    println("Received HELLO, heartbeat interval = $heartbeatIntervalMs ms")
 
                                     heartbeatJob?.cancel()
                                     heartbeatJob = launch {
@@ -148,6 +204,47 @@ class Bot private constructor(
                                         "READY" -> {
                                             val ready = json.decodeFromJsonElement(ReadyEvent.serializer(), base.d!!)
                                             emit(BotReadyEvent(ready.session_id))
+
+                                            scope.launch {
+                                                try {
+                                                    upsertSlashCommands()
+                                                } catch(t: Throwable) {
+                                                    println("Failed to upsert slash commands: ${t.message}")
+                                                }
+                                            }
+                                        }
+
+                                        "INTERACTION_CREATE" -> {
+                                            val ev = json.decodeFromJsonElement(InteractionCreate.serializer(), base.d!!)
+                                            if(ev.type == 2 && ev.data != null) {
+                                                val name = ev.data.name
+                                                val cmd = slashCommands[name]
+                                                if(cmd == null) {
+                                                    break
+                                                }
+
+                                                val userName = ev.member?.user?.global_name
+                                                    ?: ev.member?.user?.username
+                                                    ?: ev.user?.global_name
+                                                    ?: ev.user?.username
+                                                    ?: "there"
+
+                                                scope.launch {
+                                                    try {
+                                                        cmd.run(SlashContext(
+                                                            bot = this@Bot,
+                                                            interactionID = ev.id,
+                                                            interactionToken = ev.token,
+                                                            commandName = name,
+                                                            username = userName
+                                                        ))
+                                                    } catch(t: Throwable) {
+                                                        runCatching {
+                                                            interactionsCreateMessage(ev.id, ev.token, "Oops: ${t.message}")
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
 
                                         else -> {}

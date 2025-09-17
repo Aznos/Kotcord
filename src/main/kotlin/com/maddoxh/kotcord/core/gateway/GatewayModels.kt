@@ -40,3 +40,56 @@ data class ReadyEvent(
 data class CreateMessage(
     val content: String
 )
+
+@Serializable
+data class ApplicationInfo(
+    val id: String
+)
+
+@Serializable
+data class InteractionCreate(
+    val id: String,
+    val application_id: String,
+    val type: Int,
+    val data: InteractionData? = null,
+    val token: String,
+    val member: GuildMember? = null,
+    val user: User? = null
+)
+
+@Serializable
+data class InteractionData(
+    val id: String,
+    val name: String
+)
+
+@Serializable
+data class GuildMember(
+    val user: User? = null
+)
+
+@Serializable
+data class User(
+    val id: String,
+    val username: String,
+    val discriminator: String? = null,
+    val global_name: String? = null
+)
+
+@Serializable
+data class InteractionCallback(
+    val type: Int,
+    val data: InteractionMessageData? = null
+)
+
+@Serializable
+data class InteractionMessageData(
+    val content: String
+)
+
+@Serializable
+data class ApplicationCommandCreate(
+    val name: String,
+    val description: String,
+    val type: Int = 1
+)
