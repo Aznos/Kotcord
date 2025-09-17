@@ -88,13 +88,14 @@ class Bot private constructor(
                 var heartbeatJob: Job? = null
 
                 suspend fun sendHeartbeat() {
-                    val payload = GatewayPayload(op = OpCodes.HEARTBEAT, d = lastSeq)
                     val text = json.encodeToString(GatewayPayload.serializer(JsonElement.serializer()),
                         GatewayPayload(op = OpCodes.HEARTBEAT, d = lastSeq?.let { Json.encodeToJsonElement(it) } )
                     )
 
                     send(text)
                 }
+
+                println("WebSocket connected")
 
                 for(frame in incoming) {
                     when(frame) {
@@ -109,6 +110,8 @@ class Bot private constructor(
                                 OpCodes.HELLO -> {
                                     val hello = json.decodeFromJsonElement(Hello.serializer(), base.d!!)
                                     heartbeatIntervalMs = hello.heartbeat_interval
+                                    println("Received HELLO, heartbeat interval = $heartbeatIntervalMs ms")
+
                                     heartbeatJob?.cancel()
                                     heartbeatJob = launch {
                                         delay(heartbeatIntervalMs)
@@ -136,6 +139,8 @@ class Bot private constructor(
                                             d = json.encodeToJsonElement(Identify.serializer(), identify)
                                         )
                                     )
+
+                                    send(identText)
                                 }
 
                                 OpCodes.DISPATCH -> {

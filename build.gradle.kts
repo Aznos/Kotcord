@@ -23,6 +23,7 @@ dependencies {
     implementation("io.ktor:ktor-serialization-kotlinx-json:$ktor")
 
     implementation("org.slf4j:slf4j-simple:2.0.16")
+    implementation("io.github.cdimascio:dotenv-kotlin:6.4.1")
 }
 
 application {

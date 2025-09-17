@@ -26,9 +26,9 @@ data class Identify(
 
 @Serializable
 data class ConnectionProperties(
-    @SerialName($$"$os") val os: String,
-    @SerialName($$"$browser") val browser: String,
-    @SerialName($$"$device") val device: String
+    @SerialName("\$os") val os: String,
+    @SerialName("\$browser") val browser: String,
+    @SerialName("\$device") val device: String
 )
 
 @Serializable
