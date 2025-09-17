@@ -6,6 +6,8 @@ import io.ktor.client.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.plugins.websocket.*
+import io.ktor.client.request.*
+import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
@@ -66,7 +68,13 @@ class Bot private constructor(
     }
 
     suspend fun sendMessage(channelID: String, content: String) {
-
+        val url = "https://discord.com/api/v9/channels/$channelID/messages"
+        client.post(url) {
+            headers.append("Authorization", "Bot ${config.token}")
+            headers.append("User-Agent", "DiscordBot (kotcord)")
+            contentType(ContentType.Application.Json)
+            setBody(CreateMessage(content))
+        }
     }
 
     fun start() {
